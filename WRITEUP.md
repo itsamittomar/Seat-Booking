@@ -79,6 +79,8 @@ Ticket, not page:
 - `reservations_released_total{cause="expire"}` running high, meaning buyers are not completing checkout. That is a product signal.
 - Sustained `idempotency_mismatch`. Some client is reusing keys, which is a client bug.
 
+**An incident this caught.** The first 20k burst against the live free instance returned 11,733 502s from Render's proxy, and the process restarted mid-burst. The cause was the readiness probe. It borrowed a connection from the same pool as the roughly 1,000 queued requests, waited past its 2-second timeout, and returned 503, so Render restarted a healthy instance at peak load. Correctness held: the database showed no double-sold seat and one reservation per key. Readiness now uses its own dedicated connection, so it measures whether Postgres is reachable, not how busy the service is. The rerun had zero 5xx, readiness answered within 0.8 seconds throughout, and the instance did not restart. The lesson is that a health check that degrades under load turns overload into an outage.
+
 Every log line carries `request_id`, which is echoed in the `X-Request-ID` response header, so one buyer's complaint can be traced to one line.
 
 ## 6. AI usage
@@ -104,6 +106,7 @@ I used Claude Code throughout, and I am disclosing which parts were directed and
 - **Partial-hold commit.** The first plan's "should be unreachable" guard would have committed a decline after inserting a reservation, leaving an orphan reservation. It was changed to roll back.
 - **Cancel and reserve could deadlock.** In the first plan, cancel updated seats in index order while reserve locked them in label order. All paths now share one lock order.
 - **Idempotency scope.** Found by rerunning the 20k burst, as described in section 2.
+- **Readiness under load.** Found by the live 20k burst, as described in section 5.
 - **Two bugs in the load tool itself.** The seat-label generator broke past row Z, and `burst.sh` took a flag for the admin token.
 
 ## 7. What I would do next
@@ -115,3 +118,4 @@ I used Claude Code throughout, and I am disclosing which parts were directed and
 - Add a waiting room or per-show admission queue for very large on-sales, so the database does not spend work on requests that are certain to lose. Any "seat already taken" fast path would be a hint only; Postgres stays the authority.
 - Replace the demo token endpoint with JWT verification against a real identity provider.
 - Commit alert rules and a dashboard alongside the code.
+- Run on a larger instance for real on-sales. The free instance drains about 150 reserves per second because it is CPU-bound; the design scales with CPU until Postgres becomes the limit.
