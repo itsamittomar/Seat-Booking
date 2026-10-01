@@ -4,7 +4,7 @@ services:
     name: seat-reservation
     runtime: docker
     plan: free
-    region: oregon
+    region: ohio # same AWS region as the Neon project (us-east-2)
     healthCheckPath: /readyz
     autoDeploy: true
     envVars:
