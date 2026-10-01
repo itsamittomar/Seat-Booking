@@ -10,19 +10,26 @@ import (
 	"syscall"
 	"time"
 
+	"bookingSystem/internal/auth"
+	"bookingSystem/internal/booking"
 	"bookingSystem/internal/config"
 	"bookingSystem/internal/httpapi"
+	"bookingSystem/internal/metrics"
 	"bookingSystem/internal/store"
 )
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
 	cfg, err := config.Load()
 	if err != nil {
-		logger.Error("startup", "err", err)
+		slog.Error("startup", "err", err)
 		os.Exit(1)
 	}
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
+		level = slog.LevelInfo
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(logger)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -37,12 +44,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	m := metrics.New()
+	svc := booking.NewService(db.Pool)
+	handler := httpapi.NewHandler(httpapi.Deps{
+		DB:      db,
+		Service: svc,
+		Auth:    auth.New(cfg.TokenSecret, cfg.AdminToken),
+		Metrics: m,
+		Logger:  logger,
+	})
+
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           httpapi.NewHandler(httpapi.Deps{DB: db}),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      90 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 	go func() {
