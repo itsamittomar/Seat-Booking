@@ -63,8 +63,10 @@ func main() {
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      90 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Generous on purpose: in an on-sale burst a request may queue for a pool connection for a
+		// long time on a small instance. A slow answer beats a connection reset the client cannot interpret.
+		WriteTimeout: 180 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 	go sweeper.Run(ctx, svc, db.Pool, m, logger, cfg.SweepInterval)
 	go func() {
