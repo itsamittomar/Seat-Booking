@@ -1,0 +1,20 @@
+# Render Blueprint. Secrets marked sync:false are entered in the dashboard, never committed.
+services:
+  - type: web
+    name: seat-reservation
+    runtime: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /readyz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: TOKEN_SECRET
+        generateValue: true
+      - key: DB_MAX_CONNS
+        value: "20"
+      - key: LOG_LEVEL
+        value: info
