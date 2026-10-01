@@ -8,12 +8,7 @@ import (
 	"time"
 )
 
-// reserve scopes the idempotency key to the show so tests stay independent on a shared,
-// persistent database (keys are scoped per user across all shows).
 func reserve(svc *Service, showID, user, key string, seats ...string) (ReserveResult, error) {
-	if key != "" {
-		key = showID + ":" + key
-	}
 	return svc.Reserve(context.Background(), ReserveInput{ShowID: showID, UserID: user, IdempotencyKey: key, Seats: seats})
 }
 
@@ -188,6 +183,11 @@ func TestIdempotencyReplayAndMismatch(t *testing.T) {
 	// keys are scoped per user: another user may use the same key string
 	if _, err := reserve(svc, show.ID, "u9", "same-key", "A03"); err != nil {
 		t.Fatalf("other user same key: %v", err)
+	}
+	// and per show: the same user and key on a fresh show is a new request, not a mismatch
+	other := mustCreateShow(t, svc, 3, 4, time.Minute)
+	if _, err := reserve(svc, other.ID, "u1", "same-key", "A02"); err != nil {
+		t.Fatalf("same user and key on another show: %v", err)
 	}
 	// a declined request replays its decline instead of re-evaluating
 	if c := code(reserve2(svc, show.ID, "u2", "k2", "A01")); c != CodeSeatTaken {

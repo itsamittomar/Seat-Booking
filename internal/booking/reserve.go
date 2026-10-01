@@ -16,7 +16,7 @@ const maxIdempotencyKeyLen = 128
 // on every requested seat, or a clean decline that changes nothing.
 //
 // Order inside the single transaction:
-//  1. idempotency row (insert, or lock the existing one) so a key acts at most once
+//  1. idempotency row keyed (show, user, key): insert, or lock the existing one, so a key acts at most once
 //  2. advisory transaction lock on (show, user) so the per-user limit check is exact
 //  3. seat rows locked FOR UPDATE in label order, so multi-seat requests cannot deadlock
 //  4. limit check, then a guarded UPDATE whose row count must equal the request size
@@ -59,8 +59,8 @@ func (s *Service) reserveTx(ctx context.Context, show Show, userID, key, hash st
 	// 1. Idempotency. If a concurrent request with the same key is in flight, this INSERT
 	// blocks on the primary key until that transaction ends, then reports a conflict.
 	tag, err := tx.Exec(ctx,
-		`INSERT INTO idempotency_keys (user_id, key, request_hash) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-		userID, key, hash)
+		`INSERT INTO idempotency_keys (show_id, user_id, key, request_hash) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+		show.ID, userID, key, hash)
 	if err != nil {
 		return ReserveResult{}, err
 	}
@@ -69,8 +69,8 @@ func (s *Service) reserveTx(ctx context.Context, show Show, userID, key, hash st
 		var reservationID, declineCode, declineMsg *string
 		err := tx.QueryRow(ctx,
 			`SELECT request_hash, reservation_id::text, decline_code, decline_message
-			   FROM idempotency_keys WHERE user_id=$1 AND key=$2 FOR UPDATE`,
-			userID, key).Scan(&storedHash, &reservationID, &declineCode, &declineMsg)
+			   FROM idempotency_keys WHERE show_id=$1 AND user_id=$2 AND key=$3 FOR UPDATE`,
+			show.ID, userID, key).Scan(&storedHash, &reservationID, &declineCode, &declineMsg)
 		if err != nil {
 			return ReserveResult{}, err
 		}
@@ -128,7 +128,7 @@ func (s *Service) reserveTx(ctx context.Context, show Show, userID, key, hash st
 		return ReserveResult{}, notFound("one or more seats")
 	}
 	if len(unavailable) > 0 {
-		return commitDecline(ctx, tx, userID, key, seatTaken(unavailable))
+		return commitDecline(ctx, tx, show.ID, userID, key, seatTaken(unavailable))
 	}
 
 	// 4. Per-user limit over seats this user actively holds or owns on this show.
@@ -142,7 +142,7 @@ func (s *Service) reserveTx(ctx context.Context, show Show, userID, key, hash st
 		return ReserveResult{}, err
 	}
 	if active+len(seats) > show.PerUserLimit {
-		return commitDecline(ctx, tx, userID, key, perUserLimit(show.PerUserLimit))
+		return commitDecline(ctx, tx, show.ID, userID, key, perUserLimit(show.PerUserLimit))
 	}
 
 	// 5. Write.
@@ -173,7 +173,8 @@ func (s *Service) reserveTx(ctx context.Context, show Show, userID, key, hash st
 		// back (the deferred Rollback) rather than commit a partial hold.
 		return ReserveResult{}, seatTaken(seats)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE idempotency_keys SET reservation_id=$3 WHERE user_id=$1 AND key=$2`, userID, key, r.ID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE idempotency_keys SET reservation_id=$4 WHERE show_id=$1 AND user_id=$2 AND key=$3`,
+		show.ID, userID, key, r.ID); err != nil {
 		return ReserveResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -196,10 +197,10 @@ func seatFree(status SeatStatus, holdExpiresAt *time.Time, now time.Time) bool {
 }
 
 // commitDecline records the decline on the idempotency row and commits, so a retry replays it.
-func commitDecline(ctx context.Context, tx pgx.Tx, userID, key string, d *DeclineError) (ReserveResult, error) {
+func commitDecline(ctx context.Context, tx pgx.Tx, showID, userID, key string, d *DeclineError) (ReserveResult, error) {
 	if _, err := tx.Exec(ctx,
-		`UPDATE idempotency_keys SET decline_code=$3, decline_message=$4 WHERE user_id=$1 AND key=$2`,
-		userID, key, d.Code, d.Message); err != nil {
+		`UPDATE idempotency_keys SET decline_code=$4, decline_message=$5 WHERE show_id=$1 AND user_id=$2 AND key=$3`,
+		showID, userID, key, d.Code, d.Message); err != nil {
 		return ReserveResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
