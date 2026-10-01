@@ -41,3 +41,29 @@ func TestOpenGivesUpWhenUnreachable(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestPingIgnoresRequestPoolSaturation(t *testing.T) {
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	ctx := context.Background()
+	s, err := Open(ctx, url, 2, 10*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// take every request-pool connection, as a burst would
+	for i := 0; i < 2; i++ {
+		c, err := s.Pool.Acquire(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Release()
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if err := s.Ping(pingCtx); err != nil {
+		t.Fatalf("readiness must not wait behind request traffic: %v", err)
+	}
+}
