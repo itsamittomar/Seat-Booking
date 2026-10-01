@@ -16,6 +16,7 @@ import (
 	"bookingSystem/internal/httpapi"
 	"bookingSystem/internal/metrics"
 	"bookingSystem/internal/store"
+	"bookingSystem/internal/sweeper"
 )
 
 func main() {
@@ -62,6 +63,7 @@ func main() {
 		WriteTimeout:      90 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	go sweeper.Run(ctx, svc, db.Pool, m, logger, cfg.SweepInterval)
 	go func() {
 		logger.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
