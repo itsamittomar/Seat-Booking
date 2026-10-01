@@ -38,26 +38,41 @@ func NewHandler(d Deps) http.Handler {
 	}
 	h := &handler{db: d.DB, svc: d.Service, auth: d.Auth, metrics: d.Metrics, logger: d.Logger}
 	mux := http.NewServeMux()
-	route := func(pattern string, fn http.HandlerFunc) {
-		mux.HandleFunc(pattern, observe(h.metrics, h.logger, pattern, fn))
+	for _, rt := range h.routes() {
+		mux.HandleFunc(rt.pattern, observe(h.metrics, h.logger, rt.pattern, rt.fn))
 	}
-	route("GET /{$}", h.index)
-	route("GET /healthz", h.healthz)
-	route("GET /readyz", h.readyz)
 	mux.Handle("GET /metrics", h.metrics.Handler())
-	route("POST /auth/token", h.mintToken)
-	route("POST /shows", h.createShow)
-	route("GET /shows/{id}", h.getShow)
-	route("POST /shows/{id}/reserve", h.reserve)
-	route("GET /reservations/{id}", h.getReservation)
-	route("POST /reservations/{id}/confirm", h.confirm)
-	route("POST /reservations/{id}/cancel", h.cancel)
 	return mux
+}
+
+type route struct {
+	pattern string
+	fn      http.HandlerFunc
+}
+
+// routes is the single route table. TestSpecCoversEveryRoute keeps openapi.yaml in step with it.
+func (h *handler) routes() []route {
+	return []route{
+		{"GET /{$}", h.index},
+		{"GET /docs", h.docs},
+		{"GET /openapi.yaml", h.openapi},
+		{"GET /healthz", h.healthz},
+		{"GET /readyz", h.readyz},
+		{"POST /auth/token", h.mintToken},
+		{"POST /shows", h.createShow},
+		{"GET /shows/{id}", h.getShow},
+		{"POST /shows/{id}/reserve", h.reserve},
+		{"GET /reservations/{id}", h.getReservation},
+		{"POST /reservations/{id}/confirm", h.confirm},
+		{"POST /reservations/{id}/cancel", h.cancel},
+	}
 }
 
 func (h *handler) index(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"service": "seat-reservation",
+		"docs":    "/docs",
+		"openapi": "/openapi.yaml",
 		"endpoints": []string{
 			"POST /auth/token", "POST /shows (admin)", "GET /shows/{id}", "POST /shows/{id}/reserve",
 			"GET /reservations/{id}", "POST /reservations/{id}/confirm", "POST /reservations/{id}/cancel",

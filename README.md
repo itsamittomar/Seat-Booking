@@ -7,6 +7,7 @@ Go 1.26, Postgres, one transaction per decision. The design write-up is in [WRIT
 | | |
 |---|---|
 | Live URL | `LIVE_URL` (filled in after deploy, see [Deploy](#deploy)) |
+| API docs | `LIVE_URL/docs` (Swagger UI, try every endpoint in the browser) |
 | Metrics | `LIVE_URL/metrics` |
 | Health | `LIVE_URL/healthz` (liveness), `LIVE_URL/readyz` (readiness, checks Postgres) |
 | Logs | Render log stream, see [Observability](#observability) |
@@ -67,6 +68,8 @@ RESULT: PASS
 
 ## API
 
+Interactive docs are served at `/docs` (Swagger UI) from the OpenAPI spec at `/openapi.yaml`. To try the API there, mint a token with `POST /auth/token`, then click Authorize and paste it into `userToken`. Put the admin token into `adminToken`.
+
 All bodies are JSON. Money is integer paise. Errors look like `{"error": "<code>", "message": "..."}`.
 
 | Method and path | Auth | Success |
@@ -79,6 +82,7 @@ All bodies are JSON. Money is integer paise. Errors look like `{"error": "<code>
 | `POST /reservations/{id}/confirm` | owner | 200 `status: confirmed` |
 | `POST /reservations/{id}/cancel` | owner | 200 `status: cancelled` |
 | `GET /healthz`, `GET /readyz`, `GET /metrics` | none | |
+| `GET /docs`, `GET /openapi.yaml` | none | Swagger UI and the OpenAPI 3 spec |
 
 `POST /auth/token` is a deliberate demo shortcut so load testers can create many users. Tokens are `<user_id>.<HMAC-SHA256>` signed with `TOKEN_SECRET`. Identity comes only from the token; a `user_id` field in a request body is ignored.
 
